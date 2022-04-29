@@ -24,17 +24,23 @@ def area_volume(Ut, faces, gr, Vn):
   return Area, Volume
 
 # Writes POV-Ray source files and then output in .png files
-def writePov(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom, zoom_pos):
+def writePov(PATH_DIR, initial_geometry, step, Ut, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom, zoom_pos):
 
-  povname = "%s/pov_H%fAT%f/B%d.png"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step)
+  png_name = str(initial_geometry) + "_step%d.png"%(step)
+  foldname = "%s/"%(PATH_DIR)
 
-  foldname = "%s/pov_H%fAT%f/"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE)
+  #Create output folder if not already 
+  try:
+    if not os.path.exists(foldname):
+      os.makedirs(foldname)
+  except OSError:
+    print ('Error: Creating directory. ' + foldname) 
 
   # Normals in deformed state
   N_init = np.zeros((n_surface_nodes,3), dtype = float)
   N = normals_surfaces(Ut, faces, nodal_idx_b, len(faces), n_surface_nodes, N_init)
 
-  #os.path.dirname(povname)
+  #os.path.dirname(png_name)
 
   camera = Camera('location', [-3*zoom, 3*zoom, -3*zoom], 'look_at', [0, 0, 0], 'sky', [0, 0, -1], 'focal_point', [-0.55, 0.55, -0.55], 'aperture', 0.055, 'blur_samples', 10)
   light = LightSource([-14, 3, -14], 'color', [1, 1, 1])
@@ -70,14 +76,13 @@ def writePov(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, faces, nodal
   intersection = Intersection(Mesh, box, Texture(pigment, normal, finish))
 
   scene = Scene(camera, objects=[light, background, intersection], included=["colors.inc"])
-  #scene.render(povname, width=400, height=300, quality = 9, antialiasing = 1e-5 )
-  scene.render(povname, width=800, height=600, quality=9)
+  #scene.render(png_name, width=400, height=300, quality = 9, antialiasing = 1e-5 )
+  scene.render(png_name, width=800, height=600, quality=9)
   
 # Writes POV-Ray source files
 def writePov2(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom, zoom_pos):
 
   povname = "B%d.pov"%(step)
-
   foldname = "%s/pov_H%fAT%f/"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE)
 
   try:
@@ -93,14 +98,14 @@ def writePov2(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, faces, noda
   N_init = np.zeros((n_surface_nodes,3), dtype = float)
   N = normals_surfaces(Ut, faces, nodal_idx_b, len(faces), n_surface_nodes, N_init)
 
-  """for i in range(len(faces)):
-    Ntmp = np.cross(Ut[faces[i][1]] - Ut[faces[i][0]], Ut[faces[i][2]] - Ut[faces[i][0]])
-    N[nodal_idx_b[faces[i][0]]] += Ntmp
-    N[nodal_idx_b[faces[i][1]]] += Ntmp
-    N[nodal_idx_b[faces[i][2]]] += Ntmp
-  for i in range(n_surface_nodes):
-    N_norm = np.linalg.norm(N[i])
-    N[i] *= 1.0/N_norm"""
+  #for i in range(len(faces)):
+  #  Ntmp = np.cross(Ut[faces[i][1]] - Ut[faces[i][0]], Ut[faces[i][2]] - Ut[faces[i][0]])
+  #  N[nodal_idx_b[faces[i][0]]] += Ntmp
+  #  N[nodal_idx_b[faces[i][1]]] += Ntmp
+  #  N[nodal_idx_b[faces[i][2]]] += Ntmp
+  #for i in range(n_surface_nodes):
+  #  N_norm = np.linalg.norm(N[i])
+  #  N[i] *= 1.0/N_norm
 
   filepov.write("#include \"colors.inc\"\n")
   filepov.write("background { color rgb <1,1,1> }\n")
@@ -125,11 +130,10 @@ def writePov2(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, faces, noda
   filepov.close()
 
 # Write surface mesh in .txt files
-def writeTXT(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom_pos, center_of_gravity, maxd, miny, halforwholebrain):
+def writeTXT(PATH_DIR, initial_geometry, step, Ut, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom_pos, center_of_gravity, maxd, miny, halforwholebrain):
 
-  txtname = "B%d.txt"%(step)
-
-  foldname = "%s/pov_H%fAT%f/"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE)
+  txtname = str(initial_geometry) + "_step%d.txt"%(step)
+  foldname = "%s/"%(PATH_DIR)
 
   try:
     if not os.path.exists(foldname):
@@ -184,11 +188,10 @@ def mesh_to_stl_no_denorm(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut,
   mesh.export(save_path)
 
 # Convert surface mesh structure (from simulations) to .stl format file
-def mesh_to_stl(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, nodal_idx, zoom_pos, center_of_gravity, maxd, n_surface_nodes, faces, nodal_idx_b, miny, halforwholebrain):
+def mesh_to_stl(PATH_DIR, initial_geometry, step, Ut, nodal_idx, zoom_pos, center_of_gravity, maxd, n_surface_nodes, faces, nodal_idx_b, miny, halforwholebrain):
 
-  stlname = "B%d.stl"%(step)
-
-  foldname = "%s/pov_H%fAT%f/"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE)
+  stlname = str(initial_geometry) + "_step%d.stl"%(step)
+  foldname = "%s/"%(PATH_DIR)
 
   save_path = os.path.join(foldname, stlname)
 

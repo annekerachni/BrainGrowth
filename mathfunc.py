@@ -421,6 +421,27 @@ def inv(a):
     return np.linalg.inv(a)
 
 
+@njit
+def inv_comatrixmethod(A, detA): # manual inverse for 3x3 arrays if detA != 0. Enable to speed up tetra_elasticity() stresses computation.
+    #Formula: https://fr.wikipedia.org/wiki/Matrice_inversible; https://fr.wikipedia.org/wiki/Comatrice
+    
+    invA = np.zeros((3,3), dtype=np.float64)
+    
+    invA[0, 0] = (A[1, 1] * A[2, 2] - A[1, 2] * A[2, 1]) / detA
+    invA[1, 0] = (A[1, 2] * A[2, 0] - A[1, 0] * A[2, 2]) / detA
+    invA[2, 0] = (A[1, 0] * A[2, 1] - A[1, 1] * A[2, 0]) / detA
+    
+    invA[0, 1] = (A[0, 2] * A[2, 1] - A[0, 1] * A[2, 2]) / detA
+    invA[1, 1] = (A[0, 0] * A[2, 2] - A[0, 2] * A[2, 0]) / detA
+    invA[2, 1] = (A[0, 1] * A[2, 0] - A[0, 0] * A[2, 1]) / detA
+    
+    invA[0, 2] = (A[0, 1] * A[1, 2] - A[0, 2] * A[1, 1]) / detA
+    invA[1, 2] = (A[0, 2] * A[1, 0] - A[0, 0] * A[1, 2]) / detA
+    invA[2, 2] = (A[0, 0] * A[1, 1] - A[0, 1] * A[1, 0]) / detA
+    
+    return invA
+
+
 @jit(parallel=True, nopython=True)
 def inv_dim_3(a):
     # pure equivalent from np.linalg.inv(a)

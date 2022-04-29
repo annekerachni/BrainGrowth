@@ -95,7 +95,7 @@ def growthRate_2_half(t, n_tets, n_surface_nodes, labels_surface, labels_volume,
 
 # Calculate the regional relative growth rate for whole brain
 @jit
-def growthRate_2_whole(t, n_tets, n_surface_nodes, labels_surface, labels_surface_2, labels_volume, labels_volume_2, peak, amplitude, latency, lobes, lobes_2, indices_a, indices_b, indices_c, indices_d):
+def growthRate_2_whole(t, n_tets, n_surface_nodes, labels_surface, labels_surface_2, labels_volume, labels_volume_2, peak, amplitude, latency, peak_2, amplitude_2, latency_2, lobes, lobes_2, indices_a, indices_b, indices_c, indices_d):
   at = np.zeros(n_tets, dtype=np.float64)
   bt = np.zeros(n_surface_nodes, dtype=np.float64)
   #for i in range(n_clusters):
@@ -106,8 +106,8 @@ def growthRate_2_whole(t, n_tets, n_surface_nodes, labels_surface, labels_surfac
     m += 1
   m_2 = 0
   for i in np.unique(lobes_2):
-    at[indices_d[np.where(labels_volume_2 == i)[0]]] = amplitude[m_2]*np.exp(-np.exp(-peak[m_2]*(t-latency[m_2])))
-    bt[indices_b[np.where(labels_surface_2 == i)[0]]] = amplitude[m_2]*np.exp(-np.exp(-peak[m_2]*(t-latency[m_2])))
+    at[indices_d[np.where(labels_volume_2 == i)[0]]] = amplitude_2[m_2]*np.exp(-np.exp(-peak_2[m_2]*(t-latency_2[m_2])))
+    bt[indices_b[np.where(labels_surface_2 == i)[0]]] = amplitude_2[m_2]*np.exp(-np.exp(-peak_2[m_2]*(t-latency_2[m_2])))
     m_2 += 1
   at = np.where(at > 0.0, at, 0.0)
   bt = np.where(bt > 0.0, bt, 0.0)
@@ -201,7 +201,40 @@ def growth_tensor_tangen(tet_norms, gm, at, tan_growth_tensor, n_tets):
     at = np.reshape(np.repeat(at, 9), (n_tets, 3, 3))
     #identity = np.resize(identity, (n_tets, 3, 3)) // not compatible numba, but apparently broacasting similar
     tan_growth_tensor = np.identity(3) + (np.identity(3) - A) * gm * at
+    #tan_growth_tensor = (1 + gm * at) * np.identity(3) + (- gm * at) * A # g * Id + (1 - g) * N0XN0
+    #tan_growth_tensor = (1 + gm * at) * (np.identity(3) - A) + A # g * (Id - N0XN0) + N0XN0 --> G is expressed in terms of tangential (g) and radial growth (1) coefficients.
 
+    return tan_growth_tensor
+
+@jit(nopython=True, parallel=True)
+def growth_directions(tet_norms, n_tets):
+    
+    A = np.zeros((n_tets,3,3), dtype=np.float64)
+    B = np.zeros((n_tets,3,3), dtype=np.float64)
+    
+    for tet in prange(n_tets):
+        A[tet,0,0] = tet_norms[tet,0]*tet_norms[tet,0]
+        A[tet,0,1] = tet_norms[tet,0]*tet_norms[tet,1]
+        A[tet,0,2] = tet_norms[tet,0]*tet_norms[tet,2]
+        A[tet,1,0] = tet_norms[tet,0]*tet_norms[tet,1]
+        A[tet,1,1] = tet_norms[tet,1]*tet_norms[tet,1]
+        A[tet,1,2] = tet_norms[tet,1]*tet_norms[tet,2]
+        A[tet,2,0] = tet_norms[tet,0]*tet_norms[tet,2]
+        A[tet,2,1] = tet_norms[tet,1]*tet_norms[tet,2]
+        A[tet,2,2] = tet_norms[tet,2]*tet_norms[tet,2] 
+        
+        B[tet] = np.identity(3) - A[tet]
+    
+    return A, B
+
+@njit(parallel=True)   
+def growth_tensor(n_tets, tan_growth_tensor, B, gm, at): 
+    
+    gm = np.reshape(np.repeat(gm, 9), (n_tets, 3, 3))
+    at = np.reshape(np.repeat(at, 9), (n_tets, 3, 3))
+    
+    tan_growth_tensor = np.identity(3) + B * gm * at
+    
     return tan_growth_tensor
 
 """ @jit

@@ -1,7 +1,7 @@
 from __future__ import division
 
 from numpy.lib.function_base import vectorize
-from mathfunc import det_dim_2, det_dim_3, inv, inv_dim_3, cross_dim_2, transpose_dim_3, dot_mat_dim_3, EV, Eigensystem, dot_tetra
+from mathfunc import det_dim_2, det_dim_3, inv, inv_comatrixmethod, inv_dim_3, cross_dim_2, transpose_dim_3, dot_mat_dim_3, EV, Eigensystem, dot_tetra
 import numpy as np
 from math import sqrt
 from numba import jit, njit, prange
@@ -59,7 +59,9 @@ def tetra_elasticity(material_tets, ref_state_tets, Ft, tan_growth_tensor, bulk_
         
     if ll3 >= eps*eps and rel_vol_chg[i] > 0.0:  # No need for SVD
       s[i] = (left_cauchy_grad[i] - identity  * np.trace(left_cauchy_grad[i])/3.0) * mu[i]/(rel_vol_chg[i] * np.power(rel_vol_chg[i], 2.0/3.0)) + identity  * bulk_modulus * (rel_vol_chg_av[i]-1.0)
-      p[i] = np.dot(s[i], np.linalg.inv(deformation_grad[i].transpose()))*rel_vol_chg[i] # Piola-Kirchhoff stress
+      #p[i] = np.dot(s[i], np.linalg.inv(deformation_grad[i].transpose()))*rel_vol_chg[i] # Piola-Kirchhoff stress
+      p[i] = np.dot( s[i], inv_comatrixmethod(deformation_grad[i].transpose(), rel_vol_chg[i]) ) * rel_vol_chg[i] # Piola-Kirchhoff stress / np.linalg.inv(F.T) ~= inv_comatrixmethod(F.T, det(F.T))
+      
       #W = 0.5*mu[i]*(np.trace(left_cauchy_grad[i])/powJ23 - 3.0) + 0.5*bulk_modulus*((rel_vol_chg1[i]-1.0)*(rel_vol_chg1[i]-1.0) + (rel_vol_chg2[i]-1.0)*(rel_vol_chg2[i]-1.0) + (rel_vol_chg3[i]-1.0)*(rel_vol_chg3[i]-1.0) + (rel_vol_chg4[i]-1.0)*(rel_vol_chg4[i]-1.0))*0.25  
         
     else:   #need SVD

@@ -23,13 +23,14 @@ import io
 import sys
 
 #local modules
-from geometry import netgen_to_array, tetra_normals, get_nodes, get_tetra_indices, get_face_indices, get_nb_surface_nodes, edge_length, volume_mesh, mark_nogrowth, config_refer, config_deform, normals_surfaces, calc_vol_nodal, calc_mid_plane, calc_longi_length, paraZoom, tetra_labels_surface_half, tetra_labels_volume_half, Curve_fitting_half, tetra_labels_surface_whole, tetra_labels_volume_whole, curve_fitting_whole
-from growth import growthRate, shear_modulus, growth_tensor_tangen, growthRate_2_half, growthRate_2_whole
+from geometry import netgen_to_array, tetra_normals, get_nodes, get_tetra_indices, get_face_indices, get_nb_surface_nodes, edge_length, volume_mesh, mark_nogrowth, config_refer, config_deform, normals_surfaces, calc_vol_nodal, calc_mid_plane, calc_longi_length, paraZoom, tetra_labels_surface_half, tetra_labels_volume_half, curve_fitting_half, tetra_labels_surface_whole, tetra_labels_volume_whole, curve_fitting_whole
+from growth import growthRate, shear_modulus, growth_tensor_tangen, growth_directions, growth_tensor, growthRate_2_half, growthRate_2_whole
 from normalisation import normalise_coord
 from collision_Tallinen import contact_process
 from mechanics import tetra_elasticity, move
 from output import area_volume, writePov, writeTXT, mesh_to_stl, mesh_to_vtk
 from normalisation import coordinates_denormalisation
+from regional_growth_computation import parcel_half_mesh, parcel_whole_mesh, braingrowth_surf_parcellation_file_writer, braingrowth_vol_parcellation_file_writer
 
 # sphere5 (ellipsoid): './data/sphere5.mesh' (6761 vertices)
 # dhc brain: './data/dhcpbrain_ras_iso_fine.mesh' (4204 vertices)
@@ -37,9 +38,9 @@ from normalisation import coordinates_denormalisation
 if __name__ == '__main__':
   start_time_initialization = time.time ()
   parser = argparse.ArgumentParser(description='Dynamic simulations')
-  parser.add_argument('-i', '--input', help='Input mesh', type=str, default='./data/sphere5.mesh', required=False) # TO UPDATE
-  parser.add_argument('-ig', '--initialgeometry', help='Initial geometry', type=str, default="ellipsoid", required=False) # TO UPDATE
-  parser.add_argument('-o', '--output', help='Output folder', type=str, default='./res/ellipsoid', required=False) # TO UPDATE
+  parser.add_argument('-i', '--input', help='Input mesh', type=str, default='./data/STA22_1_2M.mesh', required=False) # TO UPDATE
+  parser.add_argument('-ig', '--initialgeometry', help='Initial geometry', type=str, default="mireiamesh", required=False) # TO UPDATE
+  parser.add_argument('-o', '--output', help='Output folder', type=str, default='./res/mireiamesh', required=False) # TO UPDATE
   parser.add_argument('-hc', '--halforwholebrain', help='Half or whole brain', type=str, default='whole', required=False)
   parser.add_argument('-t', '--thickness', help='Normalized cortical thickness', type=float, default=0.042, required=False)
   parser.add_argument('-g', '--growth', help='Normalized relative growth rate', type=float, default=1.829, required=False) #positive correlation between growth and folding
@@ -135,48 +136,33 @@ if __name__ == '__main__':
 
     # Half brain
     if args.halforwholebrain.__eq__("half"):
-      # Define the label for each surface node
+      # Define the label for each surface node and tets of the BrainGrowth half mesh
       mesh_file = args.registermeshright
       lobes_file = args.lobesright
-      lobes = sio.load_texture(lobes_file)
-      lobes = np.round(lobes.darray[0])   #extract texture info from siam object
-      labels_surface, labels = tetra_labels_surface_half(mesh_file, method, n_clusters, coordinates0, nodal_idx, tets, lobes)
-
-      # Define the label for each tetrahedron
-      labels_volume = tetra_labels_volume_half(coordinates0, nodal_idx, tets, labels_surface)
-
-      # Curve-fit of temporal growth for each label
+      lobes, labels_reference_allnodes, labels_surfacenodes, labels_tets = parcel_half_mesh(n_clusters, method, mesh_file, lobes_file, coordinates0, nodal_idx, tets)
+      
+      # Compute regional growth model parameters
       texture_file = args.textureright
-      """texture_file_27 = '/home/x17wang/Data/GarciaPNAS2018_K65Z/PMA28to30/noninjured_ab.L.configincaltrelaxaverage.GGnorm.func.gii'
-      texture_file_31 ='/home/x17wang/Data/GarciaPNAS2018_K65Z/PMA30to34/noninjured_bc.L.configincaltrelaxaverage.GGnorm.func.gii'
-      texture_file_33 = '/home/x17wang/Data/GarciaPNAS2018_K65Z/PMA34to38/noninjured_cd.L.configincaltrelaxaverage.GGnorm.func.gii'
-      texture_file_37 ='/home/x17wang/Data/GarciaPNAS2018_K65Z/PMA30to38/noninjured_bd.L.configincaltrelaxaverage.GGnorm.func.gii'"""
-      peak, amplitude, latency = Curve_fitting_half(texture_file, labels, n_clusters, lobes)
+      peak, amplitude, latency = curve_fitting_half(texture_file, labels_reference_allnodes, n_clusters, lobes)
 
     # Whole brain
     else:
-      # Define the label for each surface node
+      # Define the label for each surface node and tets of the BrainGrowth whole mesh
       mesh_file = args.registermeshright
       mesh_file_2 = args.registermeshleft
       lobes_file = args.lobesright
       lobes_file_2 = args.lobesleft
-      lobes = sio.load_texture(lobes_file)
-      lobes = np.round(lobes.darray[0])
-      lobes_2 = sio.load_texture(lobes_file_2)
-      lobes_2 = np.round(lobes_2.darray[0])
-      indices_a = np.where(coordinates0[nodal_idx[:],1] >= (max(coordinates0[:,1]) + min(coordinates0[:,1]))/2.0)[0]  #right part surface node indices
-      indices_b = np.where(coordinates0[nodal_idx[:],1] < (max(coordinates0[:,1]) + min(coordinates0[:,1]))/2.0)[0]  #left part surface node indices
-      indices_c = np.where((coordinates0[tets[:,0],1]+coordinates0[tets[:,1],1]+coordinates0[tets[:,2],1]+coordinates0[tets[:,3],1])/4 >= (max(coordinates0[:,1]) + min(coordinates0[:,1]))/2.0)[0]  #right part tetrahedral indices
-      indices_d = np.where((coordinates0[tets[:,0],1]+coordinates0[tets[:,1],1]+coordinates0[tets[:,2],1]+coordinates0[tets[:,3],1])/4 < (max(coordinates0[:,1]) + min(coordinates0[:,1]))/2.0)[0]  #left part tetrahedral indices
-      labels_surface, labels_surface_2, labels, labels_2 = tetra_labels_surface_whole(mesh_file, mesh_file_2, method, n_clusters, coordinates0, nodal_idx, tets, indices_a, indices_b, lobes, lobes_2)
+      labels_reference_allnodes, labels_reference_allnodes_2, labels_surfacenodes, labels_surfacenodes_2, labels_tets, labels_tets_2, lobes, lobes_2, indices_a, indices_b, indices_c, indices_d = \
+        parcel_whole_mesh(n_clusters, method, mesh_file, mesh_file_2, lobes_file, lobes_file_2, coordinates0, nodal_idx, tets)
 
-      # Define the label for each tetrahedron
-      labels_volume, labels_volume_2 = tetra_labels_volume_whole(coordinates0, nodal_idx, tets, indices_a, indices_b, indices_c, indices_d, labels_surface, labels_surface_2)
+      # Check BrainGrowth mesh parcellation 
+      #braingrowth_surf_parcellation_file_writer(args.initialgeometry, coordinates0, nodal_idx, indices_a, indices_b, labels_surfacenodes, labels_surfacenodes_2) # Surface nodes label
+      #braingrowth_vol_parcellation_file_writer(args.initialgeometry, coordinates0, tets, indices_c, indices_d, labels_tets, labels_tets_2) # Volume nodes label
 
       # Curve-fit of temporal growth for each label
       texture_file = args.textureright
       texture_file_2 = args.textureleft
-      peak, amplitude, latency, peak_2, amplitude_2, latency_2 = curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_clusters, lobes, lobes_2)
+      peak, amplitude, latency, peak_2, amplitude_2, latency_2 = curve_fitting_whole(texture_file, texture_file_2, labels_reference_allnodes, labels_reference_allnodes_2, n_clusters, lobes, lobes_2)
 
   # Normalize initial mesh coordinates, change mesh information by values normalized
   coordinates0, coordinates, center_of_gravity, maxd, miny = normalise_coord(coordinates0, coordinates, n_nodes, args.halforwholebrain)
@@ -194,19 +180,26 @@ if __name__ == '__main__':
   # Calculate normals of each surface triangle at each node
   surf_node_norms = normals_surfaces(coordinates0, faces, nodal_idx_b, n_faces, n_surface_nodes, surf_node_norms)
 
+  # Calculate reference normals of each deformed tetrahedron 
+  tet_norms0 = tetra_normals(surf_node_norms, nearest_surf_node, tets, n_tets)
+
+  # Initialize growth tensor
+  A, B = growth_directions(tet_norms0, n_tets)
+
   end_time_initialization = time.time () - start_time_initialization
   print ('\ntime required for initialization was {} seconds\n'.format(end_time_initialization))
 
   # Simulation loop
+  times_tetraelasticity = 0.
   start_time_simulation = time.time ()
   while t < 1.0: 
 
     # Calculate the relative growth rate //bt not used
     if args.growthmethod.__eq__("regional"):
       if args.halforwholebrain.__eq__("half"):
-        at, bt = growthRate_2_half(t, n_tets, n_surface_nodes, labels_surface, labels_volume, peak, amplitude, latency, lobes)
+        at, bt = growthRate_2_half(t, n_tets, n_surface_nodes, labels_surfacenodes, labels_tets, peak, amplitude, latency, lobes)
       else:
-        at, bt = growthRate_2_whole(t, n_tets, n_surface_nodes, labels_surface, labels_surface_2, labels_volume, labels_volume_2, peak, amplitude, latency, lobes, lobes_2, indices_a, indices_b, indices_c, indices_d)
+        at, bt = growthRate_2_whole(t, n_tets, n_surface_nodes, labels_surfacenodes, labels_surfacenodes_2, labels_tets, labels_tets_2, peak, amplitude, latency, peak_2, amplitude_2, latency_2, lobes, lobes_2, indices_a, indices_b, indices_c, indices_d)
     else:
       at = growthRate(GROWTH_RELATIVE, t, n_tets, growth_filter)
       
@@ -231,17 +224,17 @@ if __name__ == '__main__':
     #gm_nodal, g = tangential_cortical_expansion_ratio(dist_2_surf, cortex_thickness, tets, n_nodes, gr, at) 
 
     # Calculate elastic forces
+    t1 = time.time ()
     Ft = tetra_elasticity(material_tets, ref_state_tets, Ft, tan_growth_tensor, bulk_modulus, k_param, mu, tets, Vn, Vn0, n_tets, eps) 
+    t2 = time.time ()
+    times_tetraelasticity += t2 - t1
 
     #Seperate tetraelasticity initialization and calculatin, useful for optimization purposes. 
     #left_cauchy_grad, rel_vol_chg, rel_vol_chg1, rel_vol_chg2, rel_vol_chg3, rel_vol_chg4, rel_vol_chg_av, deformation_grad, ref_state_growth = tetra1(tets, tan_growth_tensor, ref_state_tets, ref_state_growth, material_tets, Vn, Vn0)
     #Ft = tetra2(n_tets, tets, Ft, left_cauchy_grad, mu, eps, rel_vol_chg, bulk_modulus,rel_vol_chg_av, deformation_grad, rel_vol_chg1, rel_vol_chg2, rel_vol_chg3, rel_vol_chg4, k_param, ref_state_growth)
 
-    # Calculate normals of each deformed tetrahedron 
-    tet_norms = tetra_normals(surf_node_norms, nearest_surf_node, tets, n_tets)
-
     # Calculate relative tangential growth factor G
-    tan_growth_tensor = growth_tensor_tangen(tet_norms, gm, at, tan_growth_tensor, n_tets) 
+    tan_growth_tensor = growth_tensor(n_tets, tan_growth_tensor, B, gm, at)
 
     # Midplane
     Ft = calc_mid_plane(coordinates, coordinates0, Ft, nodal_idx, n_surface_nodes, midplane_pos, mesh_spacing, repuls_skin, bulk_modulus) 
@@ -249,29 +242,21 @@ if __name__ == '__main__':
     # Output
     if step % di == 0:
       
-      print('step{}:'.format(step))
+      #print('step{}:'.format(step))
       # Write texture of growth in .gii files
       #writeTex(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, bt)
 
       # Obtain zoom parameter by checking the longitudinal length of the brain model
       zoom_pos = paraZoom(coordinates, nodal_idx, longi_length)
-
-      #Create output folder if not already 
-      foldname = "%s/pov_H%fAT%f/"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE)
-      try:
-        if not os.path.exists(foldname):
-          os.makedirs(foldname)
-      except OSError:
-        print ('Error: Creating directory. ' + foldname)
       
       # # Write .pov files and output mesh in .png file
-      # writePov(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, coordinates, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom, zoom_pos)
+      # writePov(PATH_DIR, args.initialgeometry, step, coordinates, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom, zoom_pos)
 
       # Write surface mesh output files in .txt file
-      writeTXT(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, coordinates, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom_pos, center_of_gravity, maxd, miny, args.halforwholebrain)
+      writeTXT(PATH_DIR, args.initialgeometry, step, coordinates, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom_pos, center_of_gravity, maxd, miny, args.halforwholebrain)
 
       # Convert surface mesh structure (from simulations) to .stl format file
-      mesh_to_stl(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, coordinates, nodal_idx, zoom_pos, center_of_gravity, maxd, n_surface_nodes, faces, nodal_idx_b, miny, args.halforwholebrain)
+      mesh_to_stl(PATH_DIR, args.initialgeometry, step, coordinates, nodal_idx, zoom_pos, center_of_gravity, maxd, n_surface_nodes, faces, nodal_idx_b, miny, args.halforwholebrain)
       
       """ # Write volume nodal physical values computed by simulation to .vtk file
       nodal_displacement = np.zeros((n_nodes), dtype=np.float64)
@@ -303,6 +288,9 @@ if __name__ == '__main__':
       # Calculate surface area and mesh volume
       """ Area, Volume = area_volume(coordinates, faces, gr, Vn)
       print('normalized area is {} mm2, normalized volume is {} mm3'.format(Area, Volume)) """
+
+      print('times_tetraelasticity = {} seconds'.format(times_tetraelasticity))
+      times_tetraelasticity = 0.
 
       #timestamp for simulation loop
       end_time_simulation = time.time() - start_time_simulation

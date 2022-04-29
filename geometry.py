@@ -653,7 +653,7 @@ def normals_surfaces(coordinates0, faces, nodal_idx_b, n_faces, n_surface_nodes,
   Ntmp = np.zeros((n_faces,3), dtype=np.float64)
   Ntmp = cross_dim_3(coordinates0[faces[:,1]] - coordinates0[faces[:,0]], coordinates0[faces[:,2]] - coordinates0[faces[:,0]])
   for i in prange(n_faces):
-    surf_node_norms[nodal_idx_b[faces[i,:]]] += Ntmp[i]
+    surf_node_norms[nodal_idx_b[faces[i,:]]] += Ntmp[i] # surf_node_norms corresponds to reference configuration (expressed with initial coordinates: coordinates0)
   for i in prange(n_surface_nodes): #because several norms are added to each face
     surf_node_norms[i] *= 1.0/np.linalg.norm(surf_node_norms[i])
 
@@ -667,7 +667,7 @@ def tetra_normals_leg(surf_node_norms, nearest_surf_node, tets, n_tets):
   Nt = normalize_dim_3(Nt) #prob line for nopython mode
 
   return Nt
-# Calculate normals of each deformed tetrahedron  
+# Calculate reference normals of each deformed tetrahedron  
 @jit(nopython=True)
 def tetra_normals(surf_node_norms, nearest_surf_node, tets, n_tets):
   """
