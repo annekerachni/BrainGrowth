@@ -135,13 +135,13 @@ def get_nb_surface_nodes(faces, n_nodes):
   return n_surface_nodes, nodal_idx, nodal_idx_b
 
 @jit(nopython=True, parallel=True)
-def edge_length(coordinates, faces, n_faces):
+def surface_edge_length(coordinates, faces, n_faces):
   """
   Calculate minimum, maximum and average edge length at the surface of mesh
   Args:
   coordinates (numpy array): cartesian cooridnates of vertices
   faces (numpy array): faces index
-  n_faces (int): number of faces
+  n_faces (int): number (nopython=True, parallel=True)of faces
   Returns:
   mine (float): minimum edge length
   maxe (float): maximum edge length
@@ -149,7 +149,7 @@ def edge_length(coordinates, faces, n_faces):
   """
   mine = 1e9
   maxe = ave = 0.0
-  for i in range(n_faces):
+  for i in prange(n_faces):
     mine = min(np.linalg.norm(coordinates[faces[i,1]] - coordinates[faces[i,0]]), mine)
     mine = min(np.linalg.norm(coordinates[faces[i,2]] - coordinates[faces[i,0]]), mine)
     mine = min(np.linalg.norm(coordinates[faces[i,2]] - coordinates[faces[i,1]]), mine)
@@ -161,8 +161,18 @@ def edge_length(coordinates, faces, n_faces):
 
   return mine, maxe, ave
 
+@njit(parallel=True)
+def area_mesh_surface(coordinates, faces):
+
+  Area = 0.0
+  for i in prange(len(faces)):
+    Ntmp = np.cross(coordinates[faces[i,1]] - coordinates[faces[i,0]], coordinates[faces[i,2]] - coordinates[faces[i,0]])
+    Area += 0.5*np.linalg.norm(Ntmp)     
+
+  return Area
+
 @jit(nopython=True, parallel=True)
-def volume_mesh(n_nodes, n_tets, tets, coordinates):
+def volume_from_coordinates(n_nodes, n_tets, tets, coordinates):
   '''
   Calculate total volume of the mesh, used for information only
   Args:
@@ -182,14 +192,22 @@ def volume_mesh(n_nodes, n_tets, tets, coordinates):
   A_init[:,2] = coordinates[tets[:,3]] - coordinates[tets[:,0]]
   vol_init[:] = det_dim_3(transpose_dim_3(A_init[:]))/6.0
 
-  for i in range(n_tets):
+  for i in prange(n_tets):
     Vn_init[tets[i,:]] += vol_init[i]/4.0
 
   Vm_init = np.sum(Vn_init)
 
   return -Vm_init
 
-@jit
+@njit
+def volume_from_Vn(Vn):
+
+  Volume = 0.0
+  Volume = abs(np.sum(Vn[:]))
+
+  return Volume
+
+@jit(forceobj=True, parallel=True)
 def tetra_labels_surface_half(mesh_file, method, n_clusters, coordinates0, nodal_idx, tets, lobes):
   '''
   Define the label for each surface node for half brain
@@ -229,7 +247,7 @@ def tetra_labels_surface_half(mesh_file, method, n_clusters, coordinates0, nodal
 
   return labels_surface, labels
 
-@jit
+@jit(forceobj=True, parallel=True)
 def tetra_labels_volume_half(coordinates0, nodal_idx, tets, labels_surface):
   '''
   Define the label for each tetrahedron for half brain
@@ -251,7 +269,7 @@ def tetra_labels_volume_half(coordinates0, nodal_idx, tets, labels_surface):
 
   return labels_volume
 
-@jit
+@jit(forceobj=True, parallel=True)
 def tetra_labels_surface_whole(mesh_file, mesh_file_2, method, n_clusters, coordinates0, nodal_idx, tets, indices_a, indices_b, lobes, lobes_2):
   '''
   Define the label for each surface node for whole brain
@@ -309,7 +327,7 @@ def tetra_labels_surface_whole(mesh_file, mesh_file_2, method, n_clusters, coord
 
   return labels_surface, labels_surface_2, labels, labels_2
 
-@jit
+@jit(forceobj=True, parallel=True)
 def tetra_labels_volume_whole(coordinates0, nodal_idx, tets, indices_a, indices_b, indices_c, indices_d, labels_surface, labels_surface_2):
   '''
   Define the label for each tetrahedron for whole brain
@@ -344,13 +362,13 @@ def tetra_labels_volume_whole(coordinates0, nodal_idx, tets, indices_a, indices_
   return labels_volume, labels_volume_2
 
 # Define Gaussian function for temporal growth rate
-@jit
+@njit
 def func(x, a, c, sigma):
 
   return a*np.exp(-(x-c)**2/sigma)
 
 # Define asymmetric normal function for temporal growth rate
-@jit
+@njit
 def skew(X, a, e, w):
   X = (X-e)/w
   Y = 2*np.exp(-X**2/2)/np.sqrt(2*np.pi)
@@ -359,19 +377,19 @@ def skew(X, a, e, w):
   return Y
 
 # Define polynomial for temporal growth
-@jit
+@njit
 def poly(x, a, b, c):
   
   return a*x**2+b*x+c
 
 # Define gompertz model for temporal growth
-@jit
+@njit
 def gompertz(x, a, b, c):
 
   return a*np.exp(-np.exp(-b*(x-c)))
 
-#@jit
-def Curve_fitting_half(texture_file, labels, n_clusters, lobes):
+@jit(forceobj=True, parallel=True)
+def curve_fitting_half(texture_file, labels, n_clusters, lobes):
   '''
   Curve-fit of temporal growth for each label for half brain
   Args:
@@ -426,8 +444,8 @@ def Curve_fitting_half(texture_file, labels, n_clusters, lobes):
 
   return peak, amplitude, latency
 
-#@jit
-def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_clusters, lobes, lobes_2):
+@jit(forceobj=True, parallel=True)
+def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_clusters, lobes, lobes_2): # for subject 2 (GCE and RCE_node data) 
   '''
   Curve-fit of temporal growth for each label for whole brain
   Args:
@@ -447,7 +465,7 @@ def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_cluste
   xdata=np.array(ages)
   
   croissance_globale_L = np.array([1.26, 1.51, 1.21, 1.38, 1.37, 1.22, 1.44, 1.57, 1.45, 1.34, 1.54, 1.67, 1.70, 1.48, 1.50, 1.19, 1.78, 1.59, 1.49, 1.34, 1.77, 1.29 ,1.57, 1.45, 1.71, 1.76, 1.81])
-  croissance_globale_R = np.array([1.30, 1.56, 1.22, 1.46, 1.35,1.24,1.47,1.58,1.45,1.31,1.66,1.78,1.67,1.42,1.44,1.22,1.75,1.56,1.40,1.33,1.79,1.27,1.52,1.34,1.68,1.81,1.78])
+  croissance_globale_R = np.array([1.30, 1.56, 1.22, 1.46, 1.35, 1.24,1.47,1.58,1.45,1.31,1.66,1.78,1.67,1.42,1.44,1.22,1.75,1.56,1.40,1.33,1.79,1.27,1.52,1.34,1.68,1.81,1.78])
   """xdata_new = np.zeros(5)
   xdata_new[0]=22
   xdata_new[1]=27
@@ -471,7 +489,7 @@ def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_cluste
   croissance_globale_sujet2_L = np.array([croissance_globale_L[1], croissance_globale_L[5], croissance_globale_L[13]])
   croissance_true_relative_R = np.zeros(texture_sujet2_R.shape)
   croissance_true_relative_L = np.zeros(texture_sujet2_L.shape)
-  for i in range(texture_sujet2_R.shape[0]):
+  for i in prange(texture_sujet2_R.shape[0]):
     croissance_true_relative_R[i, :] = texture_sujet2_R[i,:]*croissance_globale_sujet2_R[i]
     croissance_true_relative_L[i, :] = texture_sujet2_L[i,:]*croissance_globale_sujet2_L[i]
   """croissance_true = np.zeros(texture.darray.shape, dtype=np.float64)
@@ -538,7 +556,7 @@ def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_cluste
   
   p = 0
   for k in np.unique(lobes):      #= int(np.unique(lobes)[5])
-    for j in range(texture_sujet2_R.shape[0]):
+    for j in prange(texture_sujet2_R.shape[0]):
       ydata[j, p]=np.mean(croissance_true_relative_R[j, np.where(lobes == k)[0]])
     p += 1
   ydata_new[0,:] = ydata[0,:]-1
@@ -547,7 +565,7 @@ def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_cluste
   ydata_new[3,:] = np.full(len(np.unique(lobes)), 1.829)
 
   m = 0
-  for j in range(len(np.unique(lobes))):    
+  for j in prange(len(np.unique(lobes))):    
     popt, pcov = curve_fit(gompertz, tp_model, ydata_new[:,j])   
     peak[m]=popt[1]
     amplitude[m]=popt[0]
@@ -557,7 +575,7 @@ def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_cluste
 
   p_2 = 0
   for k in np.unique(lobes_2):
-    for j in range(texture_sujet2_L.shape[0]):
+    for j in prange(texture_sujet2_L.shape[0]):
       ydata_2[j, p_2]=np.mean(croissance_true_relative_L[j, np.where(lobes_2 == k)[0]])
     p_2 += 1
   ydata_new_2[0,:] = ydata_2[0,:]-1
@@ -566,7 +584,7 @@ def curve_fitting_whole(texture_file, texture_file_2, labels, labels_2, n_cluste
   ydata_new_2[3,:] = np.full(len(np.unique(lobes_2)), 1.829)
 
   m_2 = 0
-  for j in range(len(np.unique(lobes_2))):    
+  for j in prange(len(np.unique(lobes_2))):    
     popt_2, pcov_2 = curve_fit(gompertz, tp_model, ydata_new_2[:,j])   
     peak_2[m_2]=popt_2[1]
     amplitude_2[m_2]=popt_2[0]
@@ -596,7 +614,7 @@ def mark_nogrowth(coordinates0, n_nodes):
 
   return gr
 
-@jit
+@jit(nopython=True, parallel=True)
 def config_refer(coordinates0, tets, n_tets):
   '''
   Calculate the reference configuration of tetrahendrons (Ar), used for elasticity/deformation calculation
@@ -615,7 +633,7 @@ def config_refer(coordinates0, tets, n_tets):
 
   return ref_state_tets
 
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def config_deform(coordinates, tets, n_tets):
   '''
   Calculate the deformed configuration of tetrahendrons (At), used for elasticity/deformation calculation
@@ -660,7 +678,7 @@ def normals_surfaces(coordinates0, faces, nodal_idx_b, n_faces, n_surface_nodes,
   return surf_node_norms
 
 # Calculate normals of each deformed tetrahedron
-@jit
+@jit(nopython=True, parallel=True)
 def tetra_normals_leg(surf_node_norms, nearest_surf_node, tets, n_tets):
   Nt = np.zeros((n_tets,3), dtype=np.float64)
   Nt[:] = surf_node_norms[nearest_surf_node[tets[:,0]]] + surf_node_norms[nearest_surf_node[tets[:,1]]] + surf_node_norms[nearest_surf_node[tets[:,2]]] + surf_node_norms[nearest_surf_node[tets[:,3]]]
@@ -668,7 +686,7 @@ def tetra_normals_leg(surf_node_norms, nearest_surf_node, tets, n_tets):
 
   return Nt
 # Calculate reference normals of each deformed tetrahedron  
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def tetra_normals(surf_node_norms, nearest_surf_node, tets, n_tets):
   """
   Propagate the normal of nearest surface nodes to all tetrahedrons
@@ -733,7 +751,7 @@ def calc_mid_plane(coordinates, coordinates0, Ft, nodal_idx, n_surface_nodes, mi
 
   return Ft
 
-@jit
+@njit
 def calc_longi_length(t):
   '''
   TODO: add reference for calculation
@@ -750,7 +768,7 @@ def calc_longi_length(t):
   return longi_length
 
 # Obtain zoom parameter by checking the longitudinal length of the brain model
-@jit
+@njit
 def paraZoom(coordinates, nodal_idx, longi_length):
   '''
   Obtain zoom parameter by checking the longitudinal length of the brain model, used for outputs
@@ -773,3 +791,25 @@ def paraZoom(coordinates, nodal_idx, longi_length):
   zoom_pos = longi_length/(xmax-xmin)
 
   return zoom_pos
+
+@jit(forceobj=True, parallel=True)
+def compute_mesh_BLL(coordinates, n_surface_nodes, nodal_idx):
+
+  farthestneighb_distances = np.zeros((n_surface_nodes), dtype=np.float64)
+
+  # Get the max length 
+  tree = spatial.cKDTree(coordinates[nodal_idx])
+  for ele in prange(len(coordinates[nodal_idx])):
+    farthestneighb_distance_ele, index_of_nodes_in_mesh = tree.query(coordinates[nodal_idx][ele], k=n_surface_nodes) # list of distances between surface_node to other nodes, from closest to farthest.
+    farthestneighb_distances[ele] = farthestneighb_distance_ele[-1]
+
+  """ distance_to_farthest_other_surfacenode = np.zeros((n_surface_nodes), dtype=np.float64)
+  for i in range(n_surface_nodes):
+      distance_to_farthest_other_surfacenode[i] = distances[i][n_surface_nodes-1] # dist to farthest other surface node """
+  
+  mesh_BLL = np.max(farthestneighb_distances) # max distance between two surface nodes
+
+  # Get the indices of the two farthest corresponding surface nodes
+  BLL_nodes_indices = np.where(farthestneighb_distances == mesh_BLL)
+
+  return mesh_BLL, BLL_nodes_indices

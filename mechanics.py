@@ -7,6 +7,26 @@ from math import sqrt
 from numba import jit, njit, prange
 import time
 
+@njit(parallel=True)
+def shear_modulus(n_tets, muw, mug, gm):
+  """
+  Calculates global shear modulus for white and gray matter for each tetrahedron
+
+  Args:
+  n_tets (int): number of tetrahedron
+  muw (float): Shear modulus of white matter
+  mug (float): Shear modulus of gray matter
+
+  Returns:
+  mu (array): global shear modulus for each tetrahedron
+  """
+  mu = np.zeros(n_tets, dtype=np.float64)
+
+  for i in prange(n_tets):
+    mu[i] = muw*(1.0 - gm[i]) + mug*gm[i]  # Global modulus of white matter and gray matter
+
+  return mu
+
 @jit(nopython=True, parallel=True)   
 def tetra_elasticity(material_tets, ref_state_tets, Ft, tan_growth_tensor, bulk_modulus, k_param, mu, tets, Vn, Vn0, n_tets, eps):
   """

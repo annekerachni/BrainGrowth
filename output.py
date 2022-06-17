@@ -6,22 +6,11 @@ import nibabel as nib
 import trimesh
 import slam.io as sio
 import meshio
+from numba import njit, prange
+
+from geometry import volume_from_coordinates, surface_edge_length
 from normalisation import coordinates_denormalisation
-
-# Calculate surface area and mesh volume
-def area_volume(Ut, faces, gr, Vn):
-
-  Area = 0.0
-
-  for i in range(len(faces)):
-    Ntmp = np.cross(Ut[faces[i,1]] - Ut[faces[i,0]], Ut[faces[i,2]] - Ut[faces[i,0]])
-    Area += 0.5*np.linalg.norm(Ntmp)     #*(gr[faces[i,0]] + gr[faces[i,1]] + gr[faces[i,2]])/3.0
-
-  Volume = 0.0
-
-  Volume = abs(np.sum(Vn[:]))
-
-  return Area, Volume
+from time_management import t_to_GA_XWang
 
 # Writes POV-Ray source files and then output in .png files
 def writePov(PATH_DIR, initial_geometry, step, Ut, faces, nodal_idx, nodal_idx_b, n_surface_nodes, zoom, zoom_pos):
@@ -144,6 +133,7 @@ def writeTXT(PATH_DIR, initial_geometry, step, Ut, faces, nodal_idx, nodal_idx_b
   vertices = np.zeros((n_surface_nodes,3), dtype = float)
   vertices_seg = np.zeros((n_surface_nodes,3), dtype = float)
 
+  # mesh coordinates denormalisation
   vertices[:,:] = Ut[nodal_idx[:],:]*zoom_pos
   vertices_seg[:,1] = center_of_gravity[0] - vertices[:,0]*maxd
   if halforwholebrain.__eq__("half"):
@@ -200,6 +190,7 @@ def mesh_to_stl(PATH_DIR, initial_geometry, step, Ut, nodal_idx, zoom_pos, cente
   f_indices = np.zeros((len(faces),3), dtype = int)
   vertices_seg = np.zeros((n_surface_nodes,3), dtype = float)
 
+  # mesh coordinates denormalisation
   vertices[:,:] = Ut[nodal_idx[:],:]*zoom_pos
   vertices_seg[:,1] = center_of_gravity[0] - vertices[:,0]*maxd
   #vertices_seg[:,1] = vertices[:,0]*maxd + center_of_gravity[0]
@@ -403,12 +394,10 @@ def writeTex(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, bt):
 
   sio.write_texture(bt, file_gii_path) 
 
-#TODO: keep tetra
-#def mesh_to_vtk(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, coordinates, faces, center_of_gravity, step, maxd, miny, node_textures, halforwholebrain):
-def mesh_to_vtk(PATH_DIR, coordinates, faces, center_of_gravity, step, maxd, miny, node_textures, halforwholebrain, initial_geometry):
-  vtk_name = str(initial_geometry) + "_%d.vtk"%(step)
-  foldname = "%s/"%(PATH_DIR)
-  #foldname = "%s/vtk_sphere_H%fAT%f/"%(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE)
+def mesh_to_vtk(PATH_DIR, coordinates, faces, tets, center_of_gravity, step, maxd, miny, node_textures, halforwholebrain, initial_geometry):
+  vtk_name = str(initial_geometry) + "_step%d.vtk"%(step)
+  foldname = "%s/vtk/"%(PATH_DIR)
+
   try:
     if not os.path.exists(foldname):
       os.makedirs(foldname)
@@ -417,14 +406,118 @@ def mesh_to_vtk(PATH_DIR, coordinates, faces, center_of_gravity, step, maxd, min
   save_path = os.path.join(foldname, vtk_name)
   
   #coordinates denormalisation
-  coordinates_denorm = coordinates_denormalisation(coordinates, len(coordinates), center_of_gravity, maxd, miny, halforwholebrain)   
-  mesh = meshio.Mesh(coordinates_denorm, [('triangle', faces)],)
+  coordinates_denorm = coordinates_denormalisation(coordinates, len(coordinates), center_of_gravity, maxd, miny, halforwholebrain) 
+  
+  #tetra_mesh = meshio.Mesh(points=coordinates_denorm, cells = [ ("vertex", np.array([[i,] for i in range(len(coordinates_denorm))]) ) ] , )  
+  #triangle_mesh = meshio.Mesh(points=coordinates_denorm, cells=[('triangle', faces)],)
+  tetra_mesh = meshio.Mesh(points=coordinates_denorm, cells=[("tetra", tets)],)
   
   #add point data
   for key in node_textures:
-    mesh.point_data[key] = node_textures[key]
+    tetra_mesh.point_data[key] = node_textures[key]
     
-  mesh.write(save_path)
+  tetra_mesh.write(save_path)
+
+  return 
+
+  # Write advanced .txt file (computational time, normalized cortical area and volume, and "real" (denormalized) volume and area)
+def writeTXT_advanced_XWangtimeconversion(PATH_DIR, initial_geometry, step, t, Area, Volume, step_duration, coordinates, n_nodes, zoom_pos, center_of_gravity, maxd, miny, halforwholebrain, n_tets, tets, faces, n_faces):
+
+  txtname = "folding_{}_step{}.txt".format(initial_geometry, step)
+  foldname = "%s/txt/"%(PATH_DIR)
+
+  try:
+    if not os.path.exists(foldname):
+      os.makedirs(foldname)
+  except OSError:
+    print ('Error: Creating directory. ' + foldname)  
+  
+  # Compute spacings on normalized cortical surface (information to assess Bounding Box)
+  norm_min_surf_edge, norm_max_surf_edge, norm_av_surf_edge = surface_edge_length(coordinates, faces, n_faces)
+  
+  # zoom + denormalization to compute denormalized volume, area and cortical surface spacings 
+  realistic_volume_normalized_coordinates = np.zeros((n_nodes,3), dtype = float)
+  realistic_volume_normalized_coordinates = coordinates * zoom_pos
+  real_vol_coordinates_denorm = coordinates_denormalisation(realistic_volume_normalized_coordinates, len(realistic_volume_normalized_coordinates), center_of_gravity, maxd, miny, halforwholebrain)   
+  
+  maxx_norm = max(coordinates[:,0])
+  minx_norm = min(coordinates[:,0])
+  maxy_norm = max(coordinates[:,1])
+  miny_norm = min(coordinates[:,1])
+  maxz_norm = max(coordinates[:,2])
+  minz_norm = min(coordinates[:,2])
+
+  maxx_real = max(real_vol_coordinates_denorm[:,0])
+  minx_real = min(real_vol_coordinates_denorm[:,0])
+  maxy_real = max(real_vol_coordinates_denorm[:,1])
+  miny_real = min(real_vol_coordinates_denorm[:,1])
+  maxz_real = max(real_vol_coordinates_denorm[:,2])
+  minz_real = min(real_vol_coordinates_denorm[:,2])
+
+  real_volume = volume_from_coordinates(n_nodes, n_tets, tets, real_vol_coordinates_denorm)
+
+  real_area = 0.0
+  for i in range(len(faces)):
+    Ntmp = np.cross(real_vol_coordinates_denorm[faces[i,1]] - real_vol_coordinates_denorm[faces[i,0]], real_vol_coordinates_denorm[faces[i,2]] - real_vol_coordinates_denorm[faces[i,0]])
+    real_area += 0.5*np.linalg.norm(Ntmp)
+
+  min_surf_edge, max_surf_edge, av_surf_edge = surface_edge_length(real_vol_coordinates_denorm, faces, n_faces)
+
+  # write .txt file
+  completeName = os.path.join(foldname, txtname)
+  filetxt = open(completeName, "w")
+
+  filetxt.write('At step ' + str(step) + ', the folding-brain-mesh characteristics are: \n')
+  filetxt.write('\n')
+
+  if t == 0:
+    filetxt.write('>> Simulation time t = {:.5f} / Real time tGA approx.= 2 weeks \n'.format(t))
+  elif t > 0.001 and t < 0.986: # limits for t with X.Wang time relationship 
+    filetxt.write('>> Simulation time t = {:.5f} / Real time tGA = {:.3f} weeks \n'.format(t, t_to_GA_XWang(t)))
+  filetxt.write('>> Computing time required for this step was: {:.2f} s \n'.format(step_duration))
+  filetxt.write('\n')
+
+  # Normalized mesh geometry  
+  filetxt.write('NORMALIZED MESH GEOMETRY: \n')
+
+  filetxt.write('>> {:.5f} mm < x_norm < {:.5f} mm \n'.format(minx_norm, maxx_norm))
+  filetxt.write('>> {:.5f} mm < y_norm < {:.5f} mm \n'.format(miny_norm, maxy_norm))
+  filetxt.write('>> {:.5f} mm < z_norm < {:.5f} mm \n'.format(minz_norm, maxz_norm))
+  filetxt.write('\n')
+
+  filetxt.write('>> min surface spacing in normalized mesh = {:.2f} mm2 \n'.format(norm_min_surf_edge))
+  filetxt.write('>> max surface spacing in normalized mesh = {:.2f} mm2 \n'.format(norm_max_surf_edge))
+  filetxt.write('>> mean surface spacing in normalized mesh = {:.2f} mm2 \n'.format(norm_av_surf_edge))
+  filetxt.write('\n')
+
+  filetxt.write('>> Normalized cortical area = {:.2f} mm2 \n'.format(Area))
+  filetxt.write('\n')
+
+  filetxt.write('>> Normalized volume = {:.2f} mm3 \n'.format(Volume))
+  filetxt.write('\n')
+
+  # 'Real' mesh geometry 
+  filetxt.write('REAL MESH GEOMETRY: \n')
+
+  filetxt.write('>> {:.5f} mm < x_real < {:.5f} mm \n'.format(minx_real, maxx_real))
+  filetxt.write('>> {:.5f} mm < y_real < {:.5f} mm \n'.format(miny_real, maxy_real))
+  filetxt.write('>> {:.5f} mm < z_real < {:.5f} mm \n'.format(minz_real, maxz_real))
+  filetxt.write('\n')
+
+  filetxt.write('>> min surface spacing in real mesh = {:.2f} mm2 \n'.format(min_surf_edge))
+  filetxt.write('>> max surface spacing in real mesh = {:.2f} mm2 \n'.format(max_surf_edge)) 
+  filetxt.write('>> mean surface spacing in real mesh = {:.2f} mm2 \n'.format(av_surf_edge))  
+  filetxt.write('\n')
+
+  filetxt.write('>> Real cortical area = {:.2f} mm2 \n'.format(real_area))
+  filetxt.write('\n')
+
+  filetxt.write('>> Real volume = {:.2f} mm3 \n'.format(real_volume))
+  filetxt.write('\n')
+
+  filetxt.close()
+
+  return
 
 '''# Convert mesh to binary .nii.gz image
 def mesh_to_image(PATH_DIR, THICKNESS_CORTEX, GROWTH_RELATIVE, step, Ut, SN, zoom_pos, center_of_gravity, maxd, nn):

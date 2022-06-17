@@ -581,3 +581,20 @@ def make_2D_array(lis):
         arr[i, : lengths[i]] = lis[i]
     return arr
 
+# Define polynomial for cortical growth
+@jit
+def polynomial(x, a, b, c):
+  
+  return a*x**2+b*x+c
+
+# Define gompertz model for cortical growth
+@jit
+def gompertz(x, a, b, c):
+
+  return a*np.exp(-np.exp(-b*(x-c)))
+
+# Define affine model for cortical growth
+@jit
+def affine(x, a, b):
+
+  return a*x + b

@@ -7,7 +7,7 @@ from scipy.spatial import cKDTree
 import itk
 import time
 
-from meshtonifti.spatialorientationadapter_to_ras import apply_lps_ras_transformation
+from spatialorientationadapter_to_ras import apply_lps_ras_transformation
 
 
 # If reference MRI nifti and associated brain input mesh
@@ -84,7 +84,7 @@ def generate_generic_nifti_from_meshvalues(mesh_coordinates: np.array, values: n
     Parameters:
     mesh_coordinates (numpy array: (number_nodes, 3)): Sparse 3D nodes coordinates
     reso (float): Resolution wished for the output nifti image. e.g. 0.01 for mesh length of 2mm; 0.1 for mesh length of 20mm. If np.mgrid array size is too huge for memory, decrease the resolution.
-    margin (int): Image total margin (indicates the number of voxels on both sides of the nifti) 
+    margin (int): Image total margin (indicates the number of voxels on both sides of the nifti) e.g. 2
 
     Returns: 
     nib.Nifti: Nifti image of the interpolated sparse value.
@@ -137,14 +137,11 @@ def generate_generic_nifti_from_meshvalues(mesh_coordinates: np.array, values: n
 if __name__ == '__main__':
     start_time_initialization = time.time ()
     parser = argparse.ArgumentParser(description='Visualisation of brain values (nifti)')
-    parser.add_argument('-i', '--input', help='Path to input vtk file (step, coordinates, brain values)', \
-        default='../res/17fev/sphere5_meshspacauto_K0-05_gr_hibeta/vtk/sphere5_tetramesh_step500.vtk', type=str, required=False)
-    parser.add_argument('-r', '--reference', help='Reference nifti', type=str, default='../data/data_anne/dhcp/dhcp.nii', required=False)
-    parser.add_argument('-o', '--output', help='Path to output nifti file', type=str, \
-        default='../res/17fev/sphere5_meshspacauto_K0-05_gr_hibeta/vtk/sphere5_tetramesh_step500_tg.nii.gz', required=False)
+    parser.add_argument('-i', '--input', help='Path to input vtk file (step, coordinates, brain values)', default='./res/vtk_files/sphere_3000.vtk', type=str, required=False)
+    parser.add_argument('-r', '--reference', help='Reference nifti for transfer to the image space', type=str, default='../data/data_anne/dhcp/dhcp.nii', required=False)
+    parser.add_argument('-o', '--output', help='Create a path for the output nifti file', type=str, default='./res/vtk_files/sphere_3000_gr.nii.gz', required=False)
     parser.add_argument('-m', '--method', help='griddata interpolation method: nearest; linear; cubic', type=str, default='linear', required=False)
-    parser.add_argument('-mnv', '--meshnodalvalue', help='mesh nodal value to display in nifti: \
-        Displacement; Distance_to_surface; Growth_ponderation ; Tangential_growth_wg_term; Tangential_growth', type=str, default='Tangential_growth', required=False)
+    parser.add_argument('-mnv', '--meshnodalvalue', help='mesh nodal value to display in nifti: Displacement; Distance_to_surface; Growth_ponderation ; Tangential_growth_wg_term; Tangential_growth', type=str, default='Growth_ponderation', required=False)
     args = parser.parse_args()
 
     # DATA COLLECION FROM .VTK MESH
@@ -170,7 +167,7 @@ if __name__ == '__main__':
     print ('Time required for displacement interpolation : ' + str (end_time_initialization) ) """
 
     # Generic input mesh with no associated reference nifti 
-    meshvalues_generic_img = generate_generic_nifti_from_meshvalues(mesh_coordinates, mesh_nodal_values, args.method)
+    meshvalues_generic_img = generate_generic_nifti_from_meshvalues(mesh_coordinates, mesh_nodal_values, args.method, reso=0.01, margin=2)
     nib.save(meshvalues_generic_img, args.output)
     print('\n The nifti ' + str(args.output) + ' has been generated. \n') 
     
